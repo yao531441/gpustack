@@ -116,6 +116,23 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: status.hostIP
+            {{- if eq $w.runtime "intel" }}
+            {{- /*
+              Intel XPUs are detected through the node-local xpumd Prometheus
+              endpoint, and handed to workloads through Kubernetes DRA
+              (ResourceClaimTemplate), not a device plugin or privileged mounts.
+            */}}
+            - name: GPUSTACK_RUNTIME_DETECT_INTEL_XPUMD_SERVICE
+              value: {{ $.Values.worker.intel.xpumdService | quote }}
+            - name: GPUSTACK_RUNTIME_KUBERNETES_RESOURCE_INJECTION_POLICY
+              value: "DRA"
+            - name: GPUSTACK_RUNTIME_KUBERNETES_DRA_DEVICE_CLASS
+              value: {{ $.Values.worker.intel.draDeviceClass | quote }}
+            - name: GPUSTACK_RUNTIME_KUBERNETES_DRA_DRIVER
+              value: {{ $.Values.worker.intel.draDriver | quote }}
+            - name: GPUSTACK_RUNTIME_KUBERNETES_DRA_TOPOLOGY_ATTRIBUTE
+              value: {{ $.Values.worker.intel.topologyAttribute | quote }}
+            {{- end }}
             {{- if eq $w.runtime "hygon" }}
             - name: ROCM_PATH
               value: /opt/dtk

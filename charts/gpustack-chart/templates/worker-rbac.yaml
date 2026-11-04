@@ -66,6 +66,38 @@ roleRef:
   name: {{ .Release.Name }}-worker-runtimeclass-viewer
   apiGroup: rbac.authorization.k8s.io
 ---
+# Intel XPU: read the DRA inventory and occupancy (ResourceSlices, and every
+# user's ResourceClaims, to mark cards others hold) and locate the node-local
+# xpumd endpoint. Read-only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-worker-dra-viewer
+  labels:
+{{ include "chart_labels" . | indent 4 }}
+rules:
+  - apiGroups: ["resource.k8s.io"]
+    resources: ["resourceslices", "resourceclaims"]
+    verbs: ["get", "list"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-worker-dra-viewer-binding
+  labels:
+{{ include "chart_labels" . | indent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-worker
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ .Release.Name }}-worker-dra-viewer
+  apiGroup: rbac.authorization.k8s.io
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -99,6 +131,24 @@ rules:
       - get
       - list
       - watch
+  # DRA injection policy (Intel XPU): one ResourceClaimTemplate per workload,
+  # and read access to the claims created from it.
+  - apiGroups:
+      - "resource.k8s.io"
+    resources:
+      - "resourceclaimtemplates"
+    verbs:
+      - "get"
+      - "list"
+      - "create"
+      - "delete"
+  - apiGroups:
+      - "resource.k8s.io"
+    resources:
+      - "resourceclaims"
+    verbs:
+      - "get"
+      - "list"
   # The read is what turns a bare "ImagePullBackOff" into the registry error
   # behind it: gpustack-runtime reads the workload Pod's Events to explain why
   # the pull fails, and reports it on the workload's state message,

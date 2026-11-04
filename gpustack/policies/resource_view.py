@@ -122,6 +122,10 @@ class ResourceView:
                     ),
                     0,
                 )
+                if getattr(gpu, "external_allocated", False):
+                    # Held by something GPUStack did not deploy (e.g. another
+                    # user's DRA claim): nothing on it is allocatable.
+                    allocatable_vram = 0
                 allocatable.vram[gpu_index] = allocatable_vram
 
         allocatable.ram = max(

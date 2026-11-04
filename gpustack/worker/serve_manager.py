@@ -17,6 +17,7 @@ import logging
 from uuid import UUID, uuid4
 from weakref import WeakValueDictionary
 
+from gpustack_runtime import envs as runtime_envs
 from gpustack_runtime.deployer import (
     get_workload,
     WorkloadStatusStateEnum,
@@ -787,8 +788,8 @@ class ServeManager(ContainerLogPersister):
             # Otherwise, update model instance state to RUNNING if everything is fine.
             try:
                 model = self._get_model(model_instance)
-                if model.gpu_type_selector:
-                    # vGPU: read back the real device allocation the operator
+                if model.gpu_type_selector or self._is_dra():
+                    # vGPU/DRA: read back the real device allocation the operator
                     # device plugin wrote onto the workload's annotations.
                     self._sync_vgpu_allocation(model_instance, workload, is_main_worker)
                 if not model.backend_version:
@@ -1014,6 +1015,8 @@ class ServeManager(ContainerLogPersister):
             getattr(workload, "annotations", None)
         )
         if not accelerators:
+            accelerators = self._dra_allocated_accelerators(workload)
+        if not accelerators:
             return
 
         uuids = [a["id"] for a in accelerators]
@@ -1066,9 +1069,18 @@ class ServeManager(ContainerLogPersister):
             worker = self._clientset.workers.get(self._worker_id)
             gpu_devices = (worker.status and worker.status.gpu_devices) or []
         index_by_uuid = {d.uuid: d.index for d in gpu_devices if d.uuid}
-        allocated_index = next(
-            (index_by_uuid[u] for u in uuids if u in index_by_uuid), None
-        )
+        index_by_bdf = {
+            d.pci_bdf: d.index for d in gpu_devices if getattr(d, "pci_bdf", None)
+        }
+        for a in accelerators:
+            if a.get("pci_bdf") in index_by_bdf:
+                index_by_uuid.setdefault(a["id"], index_by_bdf[a["pci_bdf"]])
+        # Every allocated card must resolve (DRA may hand out several); the
+        # device plugin path allocates one card, for which this is unchanged.
+        allocated_indexes = [index_by_uuid[u] for u in uuids if u in index_by_uuid]
+        if len(allocated_indexes) != len(uuids):
+            allocated_indexes = []
+        allocated_index = allocated_indexes[0] if allocated_indexes else None
         if allocated_index is None:
             # The card isn't in the worker's reported devices (yet): patching
             # now would leave the claim charged to a wrong placeholder index.
@@ -1082,19 +1094,28 @@ class ServeManager(ContainerLogPersister):
         def rekey_claim(claim):
             if claim is None or not claim.vram:
                 return None
-            if set(claim.vram.keys()) == {allocated_index}:
+            if set(claim.vram.keys()) == set(allocated_indexes):
                 return None
-            return claim.model_copy(
-                update={"vram": {allocated_index: sum(claim.vram.values())}}
-            )
+            old = [v for _, v in sorted(claim.vram.items())]
+            if len(old) == len(allocated_indexes):
+                # Keep each card's share, moved onto the cards really allocated.
+                new_vram = dict(zip(sorted(allocated_indexes), old))
+            else:
+                total = sum(old)
+                per, rest = divmod(total, len(allocated_indexes))
+                new_vram = {
+                    idx: per + (rest if i == 0 else 0)
+                    for i, idx in enumerate(sorted(allocated_indexes))
+                }
+            return claim.model_copy(update={"vram": new_vram})
 
         with contextlib.suppress(NotFoundException):
             if is_main_worker:
                 patch_dict = {}
                 if model_instance.gpu_addresses != uuids:
                     patch_dict["gpu_addresses"] = uuids
-                if model_instance.gpu_indexes != [allocated_index]:
-                    patch_dict["gpu_indexes"] = [allocated_index]
+                if model_instance.gpu_indexes != allocated_indexes:
+                    patch_dict["gpu_indexes"] = allocated_indexes
                 new_claim = rekey_claim(model_instance.computed_resource_claim)
                 if new_claim is not None:
                     patch_dict["computed_resource_claim"] = new_claim
@@ -1107,8 +1128,8 @@ class ServeManager(ContainerLogPersister):
             if sw.gpu_addresses != uuids:
                 sw.gpu_addresses = uuids
                 changed = True
-            if sw.gpu_indexes != [allocated_index]:
-                sw.gpu_indexes = [allocated_index]
+            if sw.gpu_indexes != allocated_indexes:
+                sw.gpu_indexes = allocated_indexes
                 changed = True
             new_claim = rekey_claim(sw.computed_resource_claim)
             if new_claim is not None:
@@ -1119,6 +1140,61 @@ class ServeManager(ContainerLogPersister):
                     model_instance.id,
                     **{f"distributed_servers.subordinate_workers.{sw_pos}": sw},
                 )
+
+    @staticmethod
+    def _is_dra() -> bool:
+        policy = runtime_envs.GPUSTACK_RUNTIME_KUBERNETES_RESOURCE_INJECTION_POLICY
+        return str(policy or "").lower() == "dra"
+
+    def _dra_allocated_accelerators(self, workload) -> List[dict]:
+        """
+        Under the DRA injection policy nothing writes the allocation
+        annotation: resolve what DRA really allocated from the Pod's
+        ResourceClaims and the node's ResourceSlices, as accelerators
+        {"id": <detected uuid or pci_bdf>, "pci_bdf": ...}, ordered by PCI
+        address. Any problem means "allocation unknown", never a sync failure.
+        """
+        if not self._is_dra():
+            return []
+        k_pod = getattr(workload, "_k_pod", None)
+        if k_pod is None or not k_pod.spec or not k_pod.spec.node_name:
+            return []
+        cache = self.__dict__.setdefault("_dra_alloc_cache", {})
+        if k_pod.metadata.uid in cache:
+            return cache[k_pod.metadata.uid]
+        try:
+            import kubernetes
+            from gpustack_runtime.deployer.k8s import dra
+
+            api_client = kubernetes.client.ApiClient()
+            devices = dra.get_allocated_devices(
+                kubernetes.client.CustomObjectsApi(api_client),
+                kubernetes.client.CoreV1Api(api_client),
+                k_pod.metadata.namespace,
+                k_pod.metadata.name,
+                k_pod.spec.node_name,
+            )
+        except Exception as e:
+            logger.debug(f"Failed to resolve DRA allocation: {e}")
+            return []
+        bdfs = [d["pci_bdf"] for d in devices if d.get("pci_bdf")]
+        if not bdfs:
+            return []
+        gpu_devices = []
+        with contextlib.suppress(Exception):
+            worker = self._clientset.workers.get(self._worker_id)
+            gpu_devices = (worker.status and worker.status.gpu_devices) or []
+        uuid_by_bdf = {
+            d.pci_bdf: d.uuid
+            for d in gpu_devices
+            if getattr(d, "pci_bdf", None) and d.uuid
+        }
+        if any(b not in uuid_by_bdf for b in bdfs):
+            # Not reported by this worker yet: retry on the next sync cycle.
+            return []
+        result = [{"id": uuid_by_bdf[b], "pci_bdf": b} for b in bdfs]
+        cache[k_pod.metadata.uid] = result
+        return result
 
     @staticmethod
     def _serve_model_instance(

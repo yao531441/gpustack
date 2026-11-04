@@ -136,6 +136,15 @@ class GPUDeviceInfo(BaseModel):
     """
     Compute compatibility version of the GPU device, e.g. for NVIDIA GPUs.
     """
+    pci_bdf: Optional[str] = Field(default=None)
+    """
+    PCI address of the GPU device, e.g. 0000:26:00.0, when the detector reports it.
+    """
+    external_allocated: bool = Field(default=False)
+    """
+    Whether the device is held by something GPUStack did not deploy, e.g. another
+    user's Kubernetes DRA ResourceClaim. Such a device is treated as fully used.
+    """
 
 
 class GPUDeviceStatus(GPUDeviceInfo):

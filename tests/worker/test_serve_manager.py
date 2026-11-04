@@ -3905,3 +3905,52 @@ def test_decision_models_skip_the_inference_probe():
 
     model = Model(id=1, name="laya", categories=["decision"])
     assert _get_inference_endpoint_and_payload(model) is None
+
+
+def test_sync_dra_allocation_patches_multi_card_and_rekeys_claim():
+    manager, clientset = _build_vgpu_manager(worker_id=1, device_index=0)
+    clientset.workers.get.return_value = SimpleNamespace(
+        status=SimpleNamespace(
+            gpu_devices=[
+                SimpleNamespace(uuid=f"U{i}", index=i, pci_bdf=f"0000:{i:02x}:00.0")
+                for i in range(8)
+            ]
+        )
+    )
+    model_instance = new_model_instance(
+        1,
+        "dra-instance",
+        1,
+        worker_id=1,
+        state=ModelInstanceStateEnum.RUNNING,
+        computed_resource_claim=ComputedResourceClaim(vram={0: 100, 1: 100}),
+    )
+    clientset.model_instances.list.return_value = SimpleNamespace(
+        items=[model_instance]
+    )
+    workload = SimpleNamespace(state="Running", annotations={})
+    model = _vgpu_model()
+    model.gpu_type_selector = None
+
+    with (
+        patch("gpustack.worker.serve_manager.get_workload", return_value=workload),
+        patch.object(manager, "_is_provisioning", return_value=False),
+        patch.object(manager, "_get_model", return_value=model),
+        patch.object(manager, "_is_dra", return_value=True),
+        patch.object(
+            manager,
+            "_dra_allocated_accelerators",
+            return_value=[
+                {"id": "U4", "pci_bdf": "0000:04:00.0"},
+                {"id": "U5", "pci_bdf": "0000:05:00.0"},
+            ],
+        ),
+        patch.object(manager, "_update_model_instance") as update_model_instance,
+    ):
+        manager.sync_model_instances_state()
+
+    update_model_instance.assert_called_once()
+    _, kwargs = update_model_instance.call_args
+    assert kwargs["gpu_addresses"] == ["U4", "U5"]
+    assert kwargs["gpu_indexes"] == [4, 5]
+    assert kwargs["computed_resource_claim"].vram == {4: 100, 5: 100}

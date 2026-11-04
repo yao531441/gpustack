@@ -104,7 +104,7 @@ gpustack/k8s/manifest_template.py. Used to derive deterministic
 nodeSelector labels for each vendor DaemonSet.
 */}}
 {{- define "gpustack.pciVendorIds" -}}
-{"amd":"1002","ascend":"19e5","cambricon":"cabc","hygon":"1d94","iluvatar":"1e3e","metax":"9999","mthreads":"1ed5","nvidia":"10de","thead":"1ded"}
+{"amd":"1002","ascend":"19e5","cambricon":"cabc","hygon":"1d94","iluvatar":"1e3e","intel":"8086","metax":"9999","mthreads":"1ed5","nvidia":"10de","thead":"1ded"}
 {{- end -}}
 
 {{/*
@@ -113,7 +113,7 @@ Used for deterministic output ordering of GPU vendor DaemonSets regardless
 of the order they were listed in values.yaml. Returns a JSON-encoded list.
 */}}
 {{- define "gpustack.canonicalVendorOrder" -}}
-["amd","ascend","cambricon","hygon","iluvatar","metax","mthreads","nvidia","thead"]
+["amd","ascend","cambricon","hygon","iluvatar","intel","metax","mthreads","nvidia","thead"]
 {{- end -}}
 
 {{/*

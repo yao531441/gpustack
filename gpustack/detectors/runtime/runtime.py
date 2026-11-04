@@ -86,6 +86,10 @@ class Runtime(GPUDetector):
                 power=dev.power,
                 power_used=dev.power_used,
             )
+            # Record PCI address and external (non-GPUStack) occupancy if known.
+            if dev.appendix.get("pci_bdf"):
+                gpudev.pci_bdf = str(dev.appendix["pci_bdf"])
+            gpudev.external_allocated = bool(dev.appendix.get("external_allocated"))
             # Correct device_index if possible.
             if "card_id" in dev.appendix and dev.appendix["card_id"] is not None:
                 gpudev.device_index = safe_int(dev.appendix["card_id"])
