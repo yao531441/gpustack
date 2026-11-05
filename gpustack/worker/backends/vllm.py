@@ -37,6 +37,7 @@ from gpustack.utils.command import (
     resolve_executor_backend,
 )
 from gpustack.utils.envs import sanitize_env
+from gpustack.utils.runtime import get_default_gpu_memory_utilization_override
 from gpustack.utils.unit import byte_to_gib
 from gpustack.utils.vllm_kv_cache import ascend_local_kv_cache_unsupported_reason
 from gpustack.utils.vllm_topology import (
@@ -708,6 +709,14 @@ class VLLMServer(InferenceServer):
         # Inject user-defined backend parameters
         user_backend_parameters = self._flatten_backend_param()
         arguments.extend(user_backend_parameters)
+
+        default_gmu = get_default_gpu_memory_utilization_override()
+        if default_gmu is not None and not find_parameter(
+            self._model.backend_parameters, ["gpu-memory-utilization"]
+        ):
+            extend_args_no_exist(
+                arguments, ("--gpu-memory-utilization", str(default_gmu))
+            )
 
         extend_args_no_exist(
             arguments,

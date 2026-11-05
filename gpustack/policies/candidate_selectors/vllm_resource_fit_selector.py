@@ -45,6 +45,7 @@ from gpustack.utils.command import (
     find_int_parameter,
     resolve_executor_backend,
 )
+from gpustack.utils.runtime import get_default_gpu_memory_utilization_override
 from gpustack.utils.unit import byte_to_gib
 from gpustack.utils.vllm_topology import (
     parse_user_parallelism,
@@ -189,7 +190,9 @@ class VLLMResourceFitSelector(ScheduleCandidatesSelector):
         return None, None
 
     def _set_gpu_memory_utilization(self):
-        self._gpu_memory_utilization = 0.9
+        self._gpu_memory_utilization = (
+            get_default_gpu_memory_utilization_override() or 0.9
+        )
         model = self._model
         if self._disable_gpu_memory_utilization():
             # gpu memory utilization is not used for non-LLM models

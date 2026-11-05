@@ -718,6 +718,8 @@ class ServeManager(ContainerLogPersister):
                 # accepting the former.
                 if self._mark_crash_loop(model_instance, workload, is_main_worker):
                     continue
+                if is_main_worker:
+                    self._sync_pending_reason(model_instance, workload)
                 logger.trace(
                     f"Model instance {model_instance.name} workload is still launching. Skipping sync."
                 )
@@ -2793,6 +2795,22 @@ class ServeManager(ContainerLogPersister):
             self._clientset.models.update(id=id, model_update=m)
         except NotFoundException:
             logger.warning(f"Model with ID {id} not found when trying to update.")
+
+    _UNSCHEDULABLE_PREFIX = "Unschedulable"
+
+    def _sync_pending_reason(self, model_instance, workload):
+        """
+        Show why a Pod is not being scheduled (e.g. a ResourceClaim that cannot
+        be allocated) while the instance is still `starting`, and clear the
+        text once the Pod is scheduled. The instance state is left unchanged.
+        """
+        message = getattr(workload, "state_message", "") or ""
+        current = model_instance.state_message or ""
+        if message.startswith(self._UNSCHEDULABLE_PREFIX):
+            if current != message:
+                self._update_model_instance(model_instance.id, state_message=message)
+        elif current.startswith(self._UNSCHEDULABLE_PREFIX):
+            self._update_model_instance(model_instance.id, state_message="")
 
     def _update_model_instance(self, id: int, **kwargs):
         """

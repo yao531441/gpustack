@@ -1,3 +1,4 @@
+import os
 from typing import Optional, Union
 from gpustack_runtime.envs import (
     GPUSTACK_RUNTIME_DOCKER_PAUSE_IMAGE,
@@ -85,3 +86,23 @@ def is_cache_service_workload(status: Union[WorkloadPlan, WorkloadStatus]) -> bo
     if not status.labels:
         return False
     return status.labels.get("type") == CACHE_SERVICE_WORKLOAD_TYPE
+
+
+DEFAULT_GPU_MEMORY_UTILIZATION_ENV = "GPUSTACK_DEFAULT_GPU_MEMORY_UTILIZATION"
+
+
+def get_default_gpu_memory_utilization_override() -> Optional[float]:
+    """
+    Operator-configured default for vLLM's --gpu-memory-utilization, used when
+    the model does not set it. None (unset or invalid) keeps the engine and
+    scheduler defaults (0.9). A lower value leaves headroom on cards whose
+    memory is also used by workloads GPUStack does not manage.
+    """
+    raw = os.getenv(DEFAULT_GPU_MEMORY_UTILIZATION_ENV, "").strip()
+    if not raw:
+        return None
+    try:
+        value = float(raw)
+    except ValueError:
+        return None
+    return value if 0 < value <= 1 else None
