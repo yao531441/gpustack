@@ -348,9 +348,10 @@ worker:
     # DRA DeviceClass and driver that hand out the XPUs.
     draDeviceClass: gpu.intel.com
     draDriver: gpu.intel.com
-    # Device attribute of one topology domain. A multi-device request takes
-    # whole domains only (e.g. whole PCIe roots). Empty disables it.
-    topologyAttribute: resource.kubernetes.io/pcieRoot
+    # Device attribute of one topology domain. Empty (default) adds no topology
+    # constraint, only a device count. Set to resource.kubernetes.io/pcieRoot
+    # to make a multi-device request take whole PCIe roots only.
+    topologyAttribute: ""
   # Render the CPU worker DaemonSet (`<release>-worker`), which uses the
   # nodeSelector `feature.gpustack.ai/acceleratable: "false"` to schedule onto
   # non-acceleratable (CPU-only) nodes and carries no vendor-specific volume
