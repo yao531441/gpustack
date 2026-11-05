@@ -29,7 +29,9 @@ SELECT
     json_extract(value, '$.power') AS 'power',
     json_extract(value, '$.power_used') AS 'power_used',
     json_extract(value, '$.network') AS 'network',
-    json_extract(value, '$.topology_hints') AS 'topology_hints'
+    json_extract(value, '$.topology_hints') AS 'topology_hints',
+    json_extract(value, '$.pci_bdf') AS 'pci_bdf',
+    COALESCE(json_extract(value, '$.external_allocated'), 0) AS 'external_allocated'
 FROM
     workers w,
     json_each(w.status, '$.gpu_devices')
@@ -68,7 +70,9 @@ SELECT
     CAST(JSON_VALUE(gpu_device, '$.power') AS DECIMAL(10, 2)) AS `power`,
     CAST(JSON_VALUE(gpu_device, '$.power_used') AS DECIMAL(10, 2)) AS `power_used`,
     JSON_EXTRACT(gpu_device, '$.network') AS `network`,
-    JSON_EXTRACT(gpu_device, '$.topology_hints') AS `topology_hints`
+    JSON_EXTRACT(gpu_device, '$.topology_hints') AS `topology_hints`,
+    JSON_UNQUOTE(JSON_EXTRACT(gpu_device, '$.pci_bdf')) AS `pci_bdf`,
+    COALESCE(JSON_EXTRACT(gpu_device, '$.external_allocated') = TRUE, FALSE) AS `external_allocated`
 FROM
     workers w,
     JSON_TABLE(w.status, '$.gpu_devices[*]' COLUMNS(
@@ -110,7 +114,9 @@ SELECT
     (gpu_device::json->>'power')::FLOAT AS "power",
     (gpu_device::json->>'power_used')::FLOAT AS "power_used",
     (gpu_device::json->>'network')::JSONB AS "network",
-    (gpu_device::json->>'topology_hints')::JSONB AS "topology_hints"
+    (gpu_device::json->>'topology_hints')::JSONB AS "topology_hints",
+    (gpu_device::json->>'pci_bdf') AS "pci_bdf",
+    COALESCE((gpu_device::json->>'external_allocated')::BOOLEAN, FALSE) AS "external_allocated"
 FROM
     workers w,
     LATERAL json_array_elements(w.status::json->'gpu_devices') AS gpu_device
@@ -150,7 +156,9 @@ SELECT
     (w.status::jsonb->'gpu_devices'->s.idx->>'power')::FLOAT AS "power",
     (w.status::jsonb->'gpu_devices'->s.idx->>'power_used')::FLOAT AS "power_used",
     (w.status::jsonb->'gpu_devices'->s.idx->'network')::JSONB AS "network",
-    (w.status::jsonb->'gpu_devices'->s.idx->'topology_hints')::JSONB AS "topology_hints"
+    (w.status::jsonb->'gpu_devices'->s.idx->'topology_hints')::JSONB AS "topology_hints",
+    (w.status::jsonb->'gpu_devices'->s.idx->>'pci_bdf') AS "pci_bdf",
+    COALESCE((w.status::jsonb->'gpu_devices'->s.idx->>'external_allocated')::BOOLEAN, FALSE) AS "external_allocated"
 FROM
     workers w,
     generate_series(0, jsonb_array_length(w.status::jsonb->'gpu_devices') - 1) AS s(idx)

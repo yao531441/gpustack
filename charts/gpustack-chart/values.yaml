@@ -81,6 +81,9 @@ imagePullSecret:
     password: null
     email: null
 image:
+  # Optional registry host for the GPUStack image only; falls back to
+  # `global.hub` when empty (sub-chart images keep using `global.hub`).
+  hub: ""
   # Image repository including namespace (no registry). The final reference is
   # rendered as `{global.hub}/{image.repository}:{image.tag}`.
   repository: gpustack/gpustack
@@ -219,6 +222,8 @@ server:
     successThreshold: 1
 clusterDomain: cluster.local
 gateway:
+  # Gateway mode of the server: incluster (needs Higress CRDs) or disabled.
+  mode: incluster
   # IngressClass name for the Higress gateway; GPUStack checks if it exists in the cluster to enable in-cluster gateway mode
   ingressClassname: higress
   # Namespace where the Higress gateway pods run. Leave empty when the bundled
@@ -334,6 +339,9 @@ worker:
     - nvidia
   # Settings of the `intel` vendor DaemonSet.
   intel:
+    # Replaces the NFD PCI-vendor nodeSelector label of the intel DaemonSet
+    # (for clusters whose NFD does not advertise `pci-8086.present`).
+    nodeSelector: {}
     # `<namespace>/<service>` of the xpumd Service; the worker finds the xpumd
     # Pod on its own node through the Service's EndpointSlices.
     xpumdService: intel-xpumd/intel-xpumd

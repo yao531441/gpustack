@@ -35,6 +35,10 @@ one's pods and reschedule a whole runtime for a nodeSelector change.
     {{- $pciLabel := printf "feature.node.kubernetes.io/pci-%s.present" $pciId }}
     {{- $vendorSel = dict $pciLabel "true" }}
   {{- end }}
+  {{- /* Clusters without the NFD PCI-vendor label can pin the Intel workers by another label. */}}
+  {{- if and (eq $vendor "intel") $.Values.worker.intel.nodeSelector }}
+    {{- $vendorSel = $.Values.worker.intel.nodeSelector }}
+  {{- end }}
   {{- $merged := mergeOverwrite (deepCopy $base) $vendorSel }}
   {{- $workers = append $workers (dict "name" $vendor "dsName" (printf "%s-%s" $dsBasename $vendor) "runtime" $vendor "nodeSelector" $merged) }}
 {{- end }}

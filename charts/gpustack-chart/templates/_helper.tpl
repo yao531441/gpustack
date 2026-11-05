@@ -167,7 +167,7 @@ images from Docker Hub.
 
 
 {{ define "gpustack.image" -}}
-{{ printf "%s/%s" (include "gpustack.hub" .) .Values.image.repository -}}
+{{ printf "%s/%s" (default (include "gpustack.hub" .) (trimSuffix "/" (.Values.image.hub | default ""))) .Values.image.repository -}}
 {{ end -}}
 
 
